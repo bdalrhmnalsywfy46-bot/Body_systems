@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>الرئيسية</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; min-height: 100%;
+    background: #000000;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #e6f1ff;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px;
+  }
+
+  .logo-btn {
+    background: none; border: none; padding: 0; cursor: pointer;
+  }
+  .logo {
+    height: 64px;
+    opacity: 0.95;
+    display: block;
+  }
+
+  .clock-box { text-align: right; }
+  .clock {
+    font-size: 28px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+  }
+  .date {
+    font-size: 12px; color: #7d97b8; margin-top: 2px;
+  }
+
+  main {
+    max-width: 640px; margin: 10px auto 40px; padding: 0 18px;
+  }
+
+  h2 {
+    font-size: 15px; color: #7d97b8; font-weight: 600;
+    margin: 24px 0 12px;
+  }
+
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(120,170,255,0.15);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card .name {
+    font-size: 16px; font-weight: 600; margin-bottom: 4px;
+  }
+  .card .system {
+    font-size: 13px; color: #9db4d1; margin-bottom: 10px;
+  }
+  .card .row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px;
+  }
+  .card .deadline { color: #cfe0f5; }
+  .card .countdown {
+    padding: 4px 10px; border-radius: 20px; font-weight: 600; font-size: 12px;
+  }
+  .countdown.ok { background: rgba(56,189,131,0.15); color: #4ade80; }
+  .countdown.soon { background: rgba(250,204,21,0.15); color: #facc15; }
+  .countdown.late { background: rgba(248,113,113,0.15); color: #f87171; }
+
+  .empty {
+    text-align: center; color: #6b7f99; font-size: 13px; padding: 30px 0;
+  }
+
+  /* ---------- القائمة الجانبية ---------- */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 40;
+  }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+
+  .sidebar {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: min(300px, 82vw);
+    background: #0a0a0a;
+    border-left: 1px solid rgba(120,170,255,0.15);
+    transform: translateX(100%);
+    transition: transform 0.28s ease;
+    z-index: 50;
+    padding: 20px;
+    overflow-y: auto;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .sidebar h3 {
+    font-size: 16px; margin: 0 0 18px;
+  }
+  .sidebar label {
+    display: block; font-size: 12px; color: #7d97b8; margin: 14px 0 6px;
+  }
+  .sidebar input {
+    width: 100%; padding: 10px 12px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(120,170,255,0.2);
+    border-radius: 8px;
+    color: #e6f1ff; font-size: 14px; outline: none;
+  }
+  .sidebar input:focus { border-color: #4F8CFF; }
+
+  .sidebar button {
+    width: 100%; margin-top: 20px;
+    padding: 11px; border: none; border-radius: 8px;
+    background: #2563eb; color: #fff; font-weight: 600; font-size: 14px;
+    cursor: pointer;
+  }
+  .sidebar button:active { background: #1d4ed8; }
+
+  .sidebar .msg {
+    font-size: 12px; margin-top: 10px; min-height: 14px;
+  }
+  .sidebar .msg.ok { color: #4ade80; }
+  .sidebar .msg.err { color: #f87171; }
+
+  .close-btn {
+    position: absolute; top: 16px; left: 16px;
+    background: none; border: none; color: #7d97b8;
+    font-size: 20px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <button class="logo-btn" id="logo-btn" aria-label="فتح القائمة">
+      <img class="logo" src="logo-1-1.png" alt="logo" />
+    </button>
+    <div class="clock-box">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="date" id="date"></div>
+    </div>
+  </header>
+
+  <main>
+    <h2>الأنظمة اللي هتتسلم</h2>
+    <div id="list">
+      <div class="empty">جاري التحميل...</div>
+    </div>
+  </main>
+
+  <!-- القائمة الجانبية -->
+  <div class="overlay" id="overlay"></div>
+  <aside class="sidebar" id="sidebar">
+    <button class="close-btn" id="close-btn">✕</button>
+    <h3>إضافة نظام جديد</h3>
+
+    <label>اسم العميل</label>
+    <input type="text" id="f-name" placeholder="مثال: أحمد محمد" />
+
+    <label>نوع السيستيم</label>
+    <input type="text" id="f-system" placeholder="مثال: موقع متجر إلكتروني" />
+
+    <label>معاد التسليم</label>
+    <input type="date" id="f-date" />
+
+    <button id="add-btn">إضافة</button>
+    <div class="msg" id="form-msg"></div>
+  </aside>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDYJ0_D9KT27_7NNxluz44-s2zGOVugjjQ",
+      authDomain: "body-system-dadaf.firebaseapp.com",
+      projectId: "body-system-dadaf",
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ---------- الساعة ----------
+    function tickClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, "0");
+      const m = String(now.getMinutes()).padStart(2, "0");
+      const s = String(now.getSeconds()).padStart(2, "0");
+      document.getElementById("clock").textContent = `${h}:${m}:${s}`;
+      document.getElementById("date").textContent = now.toLocaleDateString("ar-EG", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric"
+      });
+    }
+    tickClock();
+    setInterval(tickClock, 1000);
+
+    // ---------- القائمة الجانبية: فتح/قفل ----------
+    const sidebar = document.getElementById("sidebar");
+    const overlay = document.getElementById("overlay");
+
+    function openSidebar() {
+      sidebar.classList.add("open");
+      overlay.classList.add("open");
+    }
+    function closeSidebar() {
+      sidebar.classList.remove("open");
+      overlay.classList.remove("open");
+    }
+    document.getElementById("logo-btn").addEventListener("click", openSidebar);
+    document.getElementById("close-btn").addEventListener("click", closeSidebar);
+    overlay.addEventListener("click", closeSidebar);
+
+    // ---------- التحقق من تسجيل الدخول ----------
+    firebase.auth().onAuthStateChanged(function (user) {
+      if (!user) {
+        window.location.href = "index.html";
+        return;
+      }
+      loadClients();
+    });
+
+    // ---------- إضافة عميل جديد من القائمة الجانبية ----------
+    document.getElementById("add-btn").addEventListener("click", function () {
+      const name = document.getElementById("f-name").value.trim();
+      const system = document.getElementById("f-system").value.trim();
+      const deliveryDate = document.getElementById("f-date").value;
+      const msg = document.getElementById("form-msg");
+
+      if (!name || !deliveryDate) {
+        msg.textContent = "اكتب الاسم ومعاد التسليم على الأقل";
+        msg.className = "msg err";
+        return;
+      }
+
+      db.collection("customers").add({
+        name: name,
+        system: system,
+        deliveryDate: deliveryDate,
+        active: true
+      }).then(function () {
+        msg.textContent = "اتضاف بنجاح";
+        msg.className = "msg ok";
+        document.getElementById("f-name").value = "";
+        document.getElementById("f-system").value = "";
+        document.getElementById("f-date").value = "";
+        loadClients();
+        setTimeout(closeSidebar, 700);
+      }).catch(function (err) {
+        msg.textContent = "مقدرش أضيف، تأكد من صلاحيات الكتابة (Rules)";
+        msg.className = "msg err";
+        console.error(err);
+      });
+    });
+
+    // ---------- تحميل العملاء ومواعيد التسليم ----------
+    function daysLeft(dateStr) {
+      const target = new Date(dateStr);
+      const now = new Date();
+      const diffMs = target.setHours(0,0,0,0) - now.setHours(0,0,0,0);
+      return Math.round(diffMs / (1000 * 60 * 60 * 24));
+    }
+
+    function loadClients() {
+      db.collection("customers").get().then(function (snapshot) {
+        const listEl = document.getElementById("list");
+        listEl.innerHTML = "";
+
+        if (snapshot.empty) {
+          listEl.innerHTML = '<div class="empty">لسه مفيش عملاء مضافين</div>';
+          return;
+        }
+
+        const docs = [];
+        snapshot.forEach(function (doc) { docs.push(doc.data()); });
+
+        docs.sort(function (a, b) {
+          if (!a.deliveryDate) return 1;
+          if (!b.deliveryDate) return -1;
+          return new Date(a.deliveryDate) - new Date(b.deliveryDate);
+        });
+
+        docs.forEach(function (data) {
+          const name = data.name || "عميل بدون اسم";
+          const system = data.system || "بدون تحديد نوع السيستيم";
+          const deliveryDate = data.deliveryDate;
+
+          let countdownHtml = "";
+          let deadlineText = "معاد التسليم غير محدد";
+
+          if (deliveryDate) {
+            const remaining = daysLeft(deliveryDate);
+            deadlineText = new Date(deliveryDate).toLocaleDateString("ar-EG", {
+              year: "numeric", month: "long", day: "numeric"
+            });
+            let cls = "ok", label = `باقي ${remaining} يوم`;
+            if (remaining < 0) { cls = "late"; label = `متأخر ${Math.abs(remaining)} يوم`; }
+            else if (remaining === 0) { cls = "soon"; label = "التسليم النهاردة"; }
+            else if (remaining <= 3) { cls = "soon"; label = `باقي ${remaining} يوم`; }
+            countdownHtml = `<span class="countdown ${cls}">${label}</span>`;
+          }
+
+          const card = document.createElement("div");
+          card.className = "card";
+          card.innerHTML = `
+            <div class="name">${name}</div>
+            <div class="system">${system}</div>
+            <div class="row">
+              <span class="deadline">${deadlineText}</span>
+              ${countdownHtml}
+            </div>
+          `;
+          listEl.appendChild(card);
+        });
+      }).catch(function (err) {
+        document.getElementById("list").innerHTML =
+          '<div class="empty">مقدرش أجيب البيانات، تأكد من صلاحيات القراءة (Rules)</div>';
+        console.error(err);
+      });
+    }
+  </script>
+
+</body>
+</html>
