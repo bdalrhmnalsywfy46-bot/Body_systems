@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>الرئيسية</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; min-height: 100%;
+    background: radial-gradient(ellipse at top right, #0d1b2a 0%, #060a10 60%, #030405 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #e6f1ff;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px;
+  }
+
+  .logo {
+    height: 64px;
+    opacity: 0.95;
+  }
+
+  .clock-box { text-align: right; }
+  .clock {
+    font-size: 28px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+  }
+  .date {
+    font-size: 12px; color: #7d97b8; margin-top: 2px;
+  }
+
+  main {
+    max-width: 640px; margin: 10px auto 40px; padding: 0 18px;
+  }
+
+  h2 {
+    font-size: 15px; color: #7d97b8; font-weight: 600;
+    margin: 24px 0 12px;
+  }
+
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(120,170,255,0.15);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card .name {
+    font-size: 16px; font-weight: 600; margin-bottom: 4px;
+  }
+  .card .system {
+    font-size: 13px; color: #9db4d1; margin-bottom: 10px;
+  }
+  .card .row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px;
+  }
+  .card .deadline { color: #cfe0f5; }
+  .card .countdown {
+    padding: 4px 10px; border-radius: 20px; font-weight: 600; font-size: 12px;
+  }
+  .countdown.ok { background: rgba(56,189,131,0.15); color: #4ade80; }
+  .countdown.soon { background: rgba(250,204,21,0.15); color: #facc15; }
+  .countdown.late { background: rgba(248,113,113,0.15); color: #f87171; }
+
+  .empty {
+    text-align: center; color: #6b7f99; font-size: 13px; padding: 30px 0;
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <div class="clock-box">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="date" id="date"></div>
+    </div>
+    <img class="logo" src="logo.png" alt="logo" />
+  </header>
+
+  <main>
+    <h2>الأنظمة اللي هتتسلم</h2>
+    <div id="list">
+      <div class="empty">جاري التحميل...</div>
+    </div>
+  </main>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDYJ0_D9KT27_7NNxluz44-s2zGOVugjjQ",
+      authDomain: "body-system-dadaf.firebaseapp.com",
+      projectId: "body-system-dadaf",
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ---------- الساعة ----------
+    function tickClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, "0");
+      const m = String(now.getMinutes()).padStart(2, "0");
+      const s = String(now.getSeconds()).padStart(2, "0");
+      document.getElementById("clock").textContent = `${h}:${m}:${s}`;
+      document.getElementById("date").textContent = now.toLocaleDateString("ar-EG", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric"
+      });
+    }
+    tickClock();
+    setInterval(tickClock, 1000);
+
+    // ---------- التحقق من تسجيل الدخول ----------
+    firebase.auth().onAuthStateChanged(function (user) {
+      if (!user) {
+        window.location.href = "index.html";
+        return;
+      }
+      loadClients();
+    });
+
+    // ---------- تحميل العملاء ومواعيد التسليم ----------
+    function daysLeft(dateStr) {
+      const target = new Date(dateStr);
+      const now = new Date();
+      const diffMs = target.setHours(0,0,0,0) - now.setHours(0,0,0,0);
+      return Math.round(diffMs / (1000 * 60 * 60 * 24));
+    }
+
+    function loadClients() {
+      db.collection("customers").get().then(function (snapshot) {
+        const listEl = document.getElementById("list");
+        listEl.innerHTML = "";
+
+        if (snapshot.empty) {
+          listEl.innerHTML = '<div class="empty">لسه مفيش عملاء مضافين</div>';
+          return;
+        }
+
+        const docs = [];
+        snapshot.forEach(function (doc) { docs.push(doc.data()); });
+
+        // ترتيب حسب أقرب معاد تسليم
+        docs.sort(function (a, b) {
+          if (!a.deliveryDate) return 1;
+          if (!b.deliveryDate) return -1;
+          return new Date(a.deliveryDate) - new Date(b.deliveryDate);
+        });
+
+        docs.forEach(function (data) {
+          const name = data.name || "عميل بدون اسم";
+          const system = data.system || "بدون تحديد نوع السيستيم";
+          const deliveryDate = data.deliveryDate;
+
+          let countdownHtml = "";
+          let deadlineText = "معاد التسليم غير محدد";
+
+          if (deliveryDate) {
+            const remaining = daysLeft(deliveryDate);
+            deadlineText = new Date(deliveryDate).toLocaleDateString("ar-EG", {
+              year: "numeric", month: "long", day: "numeric"
+            });
+            let cls = "ok", label = `باقي ${remaining} يوم`;
+            if (remaining < 0) { cls = "late"; label = `متأخر ${Math.abs(remaining)} يوم`; }
+            else if (remaining === 0) { cls = "soon"; label = "التسليم النهاردة"; }
+            else if (remaining <= 3) { cls = "soon"; label = `باقي ${remaining} يوم`; }
+            countdownHtml = `<span class="countdown ${cls}">${label}</span>`;
+          }
+
+          const card = document.createElement("div");
+          card.className = "card";
+          card.innerHTML = `
+            <div class="name">${name}</div>
+            <div class="system">${system}</div>
+            <div class="row">
+              <span class="deadline">${deadlineText}</span>
+              ${countdownHtml}
+            </div>
+          `;
+          listEl.appendChild(card);
+        });
+      }).catch(function (err) {
+        document.getElementById("list").innerHTML =
+          '<div class="empty">مقدرش أجيب البيانات، تأكد من صلاحيات القراءة (Rules)</div>';
+        console.error(err);
+      });
+    }
+  </script>
+
+</body>
+</html>
