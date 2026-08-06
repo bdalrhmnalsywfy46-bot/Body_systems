@@ -1,0 +1,171 @@
+/**
+ * Logic Systems — نسخة احتياطية يومية أوتوماتيك (مجانية 100%)
+ * ------------------------------------------------------------
+ * السكريبت ده بيشتغل على Google Apps Script (جزء من حسابك في
+ * جوجل، زي Google Sheets بالظبط) — مفيش أي بطاقة بنكية ولا Blaze
+ * ولا أي حاجة مدفوعة هنا خالص.
+ *
+ * هو بيعمل الآتي كل يوم الساعة 3 الصبح تلقائي:
+ * 1. يسجل دخول كأدمن (بنفس الإيميل/الباسورد بتاعك)
+ * 2. يقرا كل بيانات السيستيم من Firestore
+ * 3. يحفظها كملف JSON واحد في فولدر "Logic Systems Backups"
+ *    جوه Google Drive بتاعك
+ *
+ * ============================================================
+ * خطوات التركيب (٥ دقايق بس، مرة واحدة):
+ * ============================================================
+ * 1. روح https://script.google.com من نفس حساب الجيميل بتاعك
+ * 2. دوس "New project"
+ * 3. امسح الكود الفاضي اللي هيظهر، والصق الكود ده كامل مكانه
+ * 4. من القائمة على الشمال دوس على أيقونة الترس ⚙️ (Project Settings)
+ * 5. تحت "Script Properties" دوس "Add script property" وضيف الآتي
+ *    واحدة واحدة:
+ *      ADMIN_EMAIL      = الإيميل اللي بتدخل بيه كأدمن في السيستيم
+ *      ADMIN_PASSWORD   = الباسورد بتاعه
+ *    (متكتبش حاجة تانية، الـ API Key والـ Project ID مكتوبين في
+ *    الكود نفسه تحت لأنهم مش سريين أصلاً — ظاهرين في كود السيستيم
+ *    العادي برضو)
+ * 6. ارجع لملف الكود (أيقونة </> على الشمال)، اختار دالة
+ *    "setupDailyTrigger" من القائمة اللي فوق (جنب زرار Run)،
+ *    ودوس Run. أول مرة هيطلب منك تأذن للسكريبت (Authorize) —
+ *    وافق، ده طبيعي لأنه محتاج يوصل لحسابك في Drive.
+ * 7. خلاص. من دلوقتي هيشتغل لوحده كل يوم 3 الصبح، وهتلاقي
+ *    الملفات في Google Drive بتاعك جوه فولدر "Logic Systems Backups".
+ *
+ * لو عايز تجرب فورًا من غير ما تستنى الساعة 3، شغّل دالة
+ * "backupFirestore" نفسها من نفس القائمة.
+ * ============================================================
+ */
+
+// ---------- إعدادات (الاتنين دول مش سريين، مكتوبين في كود السيستيم أصلاً) ----------
+const FIREBASE_API_KEY = "AIzaSyDYJ0_D9KT27_7NNxluz44-s2zGOVugjjQ";
+const FIREBASE_PROJECT_ID = "body-system-dadaf";
+const COLLECTIONS_TO_BACKUP = [
+  "customers", "employeeRequests", "settings",
+  "transactions", "notifications", "supportChats"
+];
+const DRIVE_FOLDER_NAME = "Logic Systems Backups";
+
+// ---------- دالة التركيب (تشغّلها مرة واحدة بس) ----------
+function setupDailyTrigger() {
+  // بنشيل أي trigger قديم لنفس الدالة عشان منكررش الجدولة
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === "backupFirestore") {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger("backupFirestore")
+    .timeBased()
+    .atHour(3)
+    .everyDays(1)
+    .inTimezone("Africa/Cairo")
+    .create();
+
+  // نجرب نعمل نسخة فورًا عشان نتأكد إن كل حاجة شغالة صح
+  backupFirestore();
+  Logger.log("تم التفعيل بنجاح — هيشتغل كل يوم الساعة 3 الصبح تلقائي");
+}
+
+// ---------- الدالة الرئيسية: تسجيل دخول + قراءة البيانات + حفظها ----------
+function backupFirestore() {
+  const props = PropertiesService.getScriptProperties();
+  const email = props.getProperty("ADMIN_EMAIL");
+  const password = props.getProperty("ADMIN_PASSWORD");
+
+  if (!email || !password) {
+    throw new Error("لازم تضيف ADMIN_EMAIL و ADMIN_PASSWORD في Script Properties الأول (خطوة 5 في الشرح فوق)");
+  }
+
+  const idToken = signIn(email, password);
+  const backupData = {
+    exportedAt: new Date().toISOString(),
+    collections: {}
+  };
+
+  COLLECTIONS_TO_BACKUP.forEach(function (colName) {
+    backupData.collections[colName] = fetchCollection(colName, idToken);
+  });
+
+  saveToGoogleDrive(backupData);
+}
+
+// ---------- تسجيل الدخول عن طريق Firebase Auth REST API ----------
+function signIn(email, password) {
+  const url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + FIREBASE_API_KEY;
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ email: email, password: password, returnSecureToken: true }),
+    muteHttpExceptions: true
+  });
+  const data = JSON.parse(response.getContentText());
+  if (!data.idToken) {
+    throw new Error("فشل تسجيل الدخول: " + (data.error ? data.error.message : "خطأ غير معروف") + " — تأكد إن ADMIN_EMAIL و ADMIN_PASSWORD صح");
+  }
+  return data.idToken;
+}
+
+// ---------- جلب كل مستندات collection معينة (مع pagination) ----------
+function fetchCollection(colName, idToken) {
+  const docs = {};
+  let pageToken = null;
+
+  do {
+    let url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+      "/databases/(default)/documents/" + colName + "?pageSize=300";
+    if (pageToken) url += "&pageToken=" + pageToken;
+
+    const response = UrlFetchApp.fetch(url, {
+      method: "get",
+      headers: { Authorization: "Bearer " + idToken },
+      muteHttpExceptions: true
+    });
+    const data = JSON.parse(response.getContentText());
+
+    (data.documents || []).forEach(function (doc) {
+      const idParts = doc.name.split("/");
+      const docId = idParts[idParts.length - 1];
+      docs[docId] = parseFirestoreFields(doc.fields || {});
+    });
+
+    pageToken = data.nextPageToken || null;
+  } while (pageToken);
+
+  return docs;
+}
+
+// ---------- تحويل صيغة Firestore REST (typed) لصيغة JSON عادية ----------
+function parseFirestoreFields(fields) {
+  const result = {};
+  Object.keys(fields).forEach(function (key) {
+    result[key] = parseFirestoreValue(fields[key]);
+  });
+  return result;
+}
+
+function parseFirestoreValue(value) {
+  if (value.stringValue !== undefined) return value.stringValue;
+  if (value.integerValue !== undefined) return parseInt(value.integerValue, 10);
+  if (value.doubleValue !== undefined) return value.doubleValue;
+  if (value.booleanValue !== undefined) return value.booleanValue;
+  if (value.nullValue !== undefined) return null;
+  if (value.timestampValue !== undefined) return value.timestampValue;
+  if (value.mapValue !== undefined) return parseFirestoreFields(value.mapValue.fields || {});
+  if (value.arrayValue !== undefined) {
+    return (value.arrayValue.values || []).map(parseFirestoreValue);
+  }
+  return null;
+}
+
+// ---------- حفظ النسخة في Google Drive ----------
+function saveToGoogleDrive(backupData) {
+  const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
+
+  const dateStamp = Utilities.formatDate(new Date(), "Africa/Cairo", "yyyy-MM-dd_HH-mm");
+  const fileName = "backup-" + dateStamp + ".json";
+  const jsonStr = JSON.stringify(backupData, null, 2);
+
+  folder.createFile(fileName, jsonStr, MimeType.PLAIN_TEXT);
+  Logger.log("تم الحفظ: " + fileName);
+}
